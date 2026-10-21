@@ -1,5 +1,5 @@
 /* Offline-first service worker. Bump CACHE when you change any file. */
-const CACHE = 'digital-fasting-v1.0.0';
+const CACHE = 'digital-fasting-v1.0.2';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/style.css', 'js/app.js', 'js/scoring.js', 'js/seed.js',

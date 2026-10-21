@@ -8,11 +8,11 @@
     { key: 'behaviour', label: 'Behaviour',         short: 'Behaviour', max: 10, icon: '😊' },
     { key: 'time',      label: 'Time management',   short: 'Time',     max: 10, icon: '🗓️' },
     { key: 'screen',    label: 'Screen time',       short: 'Screen',   max: 10, icon: '📵' },
-    { key: 'sleep',     label: 'Sleep time',        short: 'Sleep',    max: 11, icon: '😴' },
+    { key: 'sleep',     label: 'Sleep time',        short: 'Sleep',    max: 10, icon: '😴' },
     { key: 'school',    label: 'School impression', short: 'School',   max: 10, icon: '🎒' },
     { key: 'helpful',   label: 'Helpfulness',       short: 'Helpful',  max: 10, icon: '🤝' }
   ];
-  const BASE_MAX = 70; // the "out of 70" in the original file (sleep can exceed 10 as a bonus)
+  const BASE_MAX = 70; // seven categories, each out of 10
 
   const round2 = (n) => Math.round(n * 100) / 100;
   const pad = (n) => String(n).padStart(2, '0');
@@ -40,8 +40,14 @@
 
   /* ---------- scoring ---------- */
   function num(v) { v = Number(v); return isFinite(v) ? v : 0; }
+  function clampScore(c, v) { return Math.min(c.max, Math.max(0, num(v))); }
+  function cleanScores(scores) {
+    const out = {};
+    CATEGORIES.forEach((c) => { out[c.key] = clampScore(c, scores && scores[c.key]); });
+    return out;
+  }
   function baseTotal(e) {
-    return round2(CATEGORIES.reduce((s, c) => s + num(e.scores && e.scores[c.key]), 0));
+    return round2(CATEGORIES.reduce((s, c) => s + clampScore(c, e.scores && e.scores[c.key]), 0));
   }
   function bonusTotal(e) {
     return round2((e.bonus || []).reduce((s, b) => s + num(b.points), 0));
@@ -55,7 +61,7 @@
     return sorted.map((e) => {
       const base = baseTotal(e), bonus = bonusTotal(e), total = round2(base + bonus);
       run = round2(run + total);
-      return Object.assign({}, e, { bonusItems: e.bonus || [], base, bonus, total, running: run });
+      return Object.assign({}, e, { scores: cleanScores(e.scores), bonusItems: e.bonus || [], base, bonus, total, running: run });
     });
   }
 

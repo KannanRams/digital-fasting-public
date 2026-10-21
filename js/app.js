@@ -3,7 +3,7 @@
 function app() {
   'use strict';
   const S = window.Scoring, SEED = window.Seed;
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const db = new Dexie('digital-fasting');
   db.version(1).stores({ days: 'date', settings: 'key' });
 
