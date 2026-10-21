@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Digital Fasting · Ode</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Daily digital-fasting score tracker with a running total toward a final target.">
+  <meta name="theme-color" content="#0f1830">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Ode">
+  <link rel="stylesheet" href="css/style.css">
+
+  <script src="vendor/dexie.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="vendor/confetti.browser.js"></script>
+  <script src="vendor/anime.umd.min.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/seed.js"></script>
+  <script src="js/app.js"></script>
+  <script defer src="vendor/alpine.min.js"></script>
+</head>
+<body x-data="app()" :class="{ 'is-parent': parent }" @pointerdown.window="touch()" @keydown.window="touch()">
+  <noscript>This app needs JavaScript.</noscript>
+
+  <!-- ===== Header ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="36" height="36">
+      <div>
+        <h1 x-text="settings.title">Ode to Minecraft</h1>
+        <p x-text="settings.subtitle + ' · Day ' + dayNo">Digital Fasting</p>
+      </div>
+    </div>
+    <button class="lock-btn" :class="{ on: parent }" @click="parent ? lockParent() : requireParent()" :aria-label="parent ? 'Lock parent mode' : 'Unlock parent mode'">
+      <span x-text="parent ? '🔓' : '🔒'"></span>
+      <span class="lock-text" x-text="parent ? 'Parent mode · ' + lockCountdown : 'Parent mode'"></span>
+    </button>
+  </header>
+
+  <!-- ===== Navigation (bottom on phones, side rail on tablets / desktop) ===== -->
+  <nav class="nav" aria-label="Main">
+    <template x-for="t in tabs" :key="t.id">
+      <button :class="{ active: tab === t.id }" @click="go(t.id)" :aria-current="tab === t.id ? 'page' : null">
+        <span class="ico" x-text="t.icon"></span><span class="lbl" x-text="t.label"></span>
+      </button>
+    </template>
+  </nav>
+
+  <main x-show="ready" x-cloak>
+
+    <!-- ===== DASHBOARD ===== -->
+    <section x-show="tab === 'dashboard'" class="view" data-view="dashboard">
+      <div class="grid hero-grid">
+        <div class="card hero">
+          <div class="ring-wrap">
+            <svg viewBox="0 0 200 200" class="ring" aria-hidden="true">
+              <defs>
+                <linearGradient id="rg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/>
+                </linearGradient>
+              </defs>
+              <circle cx="100" cy="100" r="84" class="ring-track"/>
+              <circle cx="100" cy="100" r="84" class="ring-bar" id="ringBar" stroke="url(#rg)"
+                      stroke-dasharray="527.79" stroke-dashoffset="527.79" transform="rotate(-90 100 100)"/>
+            </svg>
+            <div class="ring-center">
+              <div class="big" x-text="fmt(shownTotal)">0</div>
+              <div class="sub">of <span x-text="fmt(settings.goal)"></span> points</div>
+              <div class="pct" x-text="st.pct.toFixed(1) + '%'"></div>
+            </div>
+          </div>
+          <p class="hero-msg" x-text="heroMessage"></p>
+        </div>
+
+        <div class="grid stat-grid">
+          <div class="card stat">
+            <div class="k">Today</div>
+            <template x-if="st.today"><div class="v" :class="tone(st.today.base, 70)"><span x-text="fmt(st.today.total)"></span><small> pts</small></div></template>
+            <template x-if="!st.today"><div class="v muted">Not scored</div></template>
+            <button class="link" @click="scoreToday()" x-text="st.today ? 'View / edit' : 'Score today'"></button>
+          </div>
+          <div class="card stat">
+            <div class="k">Streak</div>
+            <div class="v"><span x-text="st.streak"></span><small> days ≥ <span x-text="settings.goodDay"></span></small></div>
+            <div class="flame" x-text="'🔥'.repeat(Math.min(st.streak, 7))"></div>
+          </div>
+          <div class="card stat">
+            <div class="k">Average / day</div>
+            <div class="v"><span x-text="fmt(st.avg)"></span><small> pts</small></div>
+            <div class="note" x-text="st.daysLogged + ' days logged'"></div>
+          </div>
+          <div class="card stat">
+            <div class="k">Still to go</div>
+            <div class="v"><span x-text="fmt(st.remaining)"></span><small> pts</small></div>
+            <div class="note" x-text="'Best day ' + (st.best ? fmt(st.best.total) : '–')"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <h2>Finish line</h2>
+          <div class="pace">
+            <div><span class="k">At your average pace</span>
+              <strong x-text="st.paceDate ? longDate(st.paceDate) : '–'"></strong>
+              <small x-text="st.paceDays != null ? '≈ ' + st.paceDays + ' more days' : ''"></small></div>
+            <div><span class="k">At a perfect 70 / day</span>
+              <strong x-text="longDate(st.perfectDate)"></strong>
+              <small x-text="'≈ ' + st.perfectDays + ' more days'"></small></div>
+          </div>
+          <div class="milestones">
+            <template x-for="m in settings.milestones" :key="m">
+              <div class="ms" :class="{ done: st.total >= m }">
+                <span class="badge" x-text="st.total >= m ? '🏆' : '🎯'"></span>
+                <span x-text="fmt(m)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Last 7 days</h2>
+          <div class="bars">
+            <template x-for="d in last7" :key="d.date">
+              <div class="bar-col" @click="d.row ? openEditor(d.date) : null">
+                <div class="bar-val" x-text="d.row ? fmt(d.row.total) : '–'"></div>
+                <div class="bar-track"><div class="bar-fill" :class="d.row ? tone(d.row.base, 70) : ''" :style="'height:' + (d.row ? Math.min(100, d.row.total / 70 * 100) : 0) + '%'"></div></div>
+                <div class="bar-lbl" x-text="d.label"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TODAY ===== -->
+    <section x-show="tab === 'today'" class="view" data-view="today">
+      <div class="card">
+        <h2 x-text="longDate(today)"></h2>
+        <template x-if="st.today">
+          <div>
+            <div class="today-total"><span x-text="fmt(st.today.total)"></span><small> / 70<span x-show="st.today.bonus"> + <span x-text="fmt(st.today.bonus)"></span> bonus</span></small></div>
+            <div class="cat-list">
+              <template x-for="c in cats" :key="c.key">
+                <div class="cat-row">
+                  <span class="cat-name"><span x-text="c.icon"></span> <span x-text="c.label"></span></span>
+                  <span class="meter"><i :class="tone(st.today.scores[c.key], c.max)" :style="'width:' + Math.min(100, st.today.scores[c.key] / c.max * 100) + '%'"></i></span>
+                  <b x-text="st.today.scores[c.key] + '/' + c.max"></b>
+                </div>
+              </template>
+            </div>
+            <p class="note" x-show="st.today.notes" x-text="st.today.notes"></p>
+          </div>
+        </template>
+        <template x-if="!st.today">
+          <p class="muted">Today has not been scored yet.</p>
+        </template>
+        <div class="row">
+          <button class="btn primary" @click="scoreToday()" x-text="st.today ? (parent ? 'Edit today' : 'View details') : 'Score today'"></button>
+        </div>
+        <p class="note" x-show="!parent && st.today">Changing a saved score needs parent mode.</p>
+      </div>
+      <div class="card">
+        <h2>Rules</h2>
+        <ul class="rules"><template x-for="r in settings.rules" :key="r"><li x-text="r"></li></template></ul>
+      </div>
+    </section>
+
+    <!-- ===== HISTORY ===== -->
+    <section x-show="tab === 'history'" class="view" data-view="history">
+      <div class="card">
+        <div class="row between">
+          <h2>History</h2>
+          <button class="btn small" x-show="parent" @click="openEditor(today)">+ Add / edit a day</button>
+        </div>
+        <div class="list">
+          <template x-for="r in historyRows" :key="r.date">
+            <div class="hrow" :class="{ missing: !r.row }" @click="openEditor(r.date)">
+              <div class="hday"><b x-text="'Day ' + r.n"></b><small x-text="shortDate(r.date)"></small></div>
+              <template x-if="r.row">
+                <div class="hmid">
+                  <div class="dots"><template x-for="c in cats" :key="c.key"><i :class="tone(r.row.scores[c.key], c.max)" :title="c.label + ' ' + r.row.scores[c.key]"></i></template></div>
+                  <small class="muted" x-show="r.row.bonus || r.row.notes" x-text="(r.row.bonus ? '+' + r.row.bonus + ' bonus ' : '') + (r.row.notes || '')"></small>
+                </div>
+              </template>
+              <template x-if="!r.row"><div class="hmid muted">No entry</div></template>
+              <div class="hscore" x-show="r.row"><b :class="r.row ? tone(r.row.base, 70) : ''" x-text="r.row ? fmt(r.row.total) : ''"></b><small x-text="r.row ? fmt(r.row.running) : ''"></small></div>
+              <div class="hscore" x-show="!r.row && parent"><span class="link">Add</span></div>
+            </div>
+          </template>
+          <div class="hrow opening" @click="parent ? openOpening() : null">
+            <div class="hday"><b>Days 1–3</b><small>Opening balance</small></div>
+            <div class="hmid muted">Original log incomplete, kept as one balance</div>
+            <div class="hscore"><b x-text="fmt(settings.openingBalance)"></b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== INSIGHTS ===== -->
+    <section x-show="tab === 'insights'" class="view" data-view="insights">
+      <div class="grid two">
+        <div class="card"><h2>Daily score</h2><div class="chart-box"><canvas id="chDaily"></canvas></div></div>
+        <div class="card"><h2>Progress to goal</h2><div class="chart-box"><canvas id="chRun"></canvas></div></div>
+      </div>
+      <div class="grid two">
+        <div class="card"><h2>Category strength</h2><div class="chart-box"><canvas id="chCat"></canvas></div>
+          <p class="note" x-text="weakNote"></p></div>
+        <div class="card">
+          <h2>Highlights</h2>
+          <div class="hl">
+            <div><span class="k">Best day</span><b x-text="st.best ? fmt(st.best.total) + ' · Day ' + dayNumOf(st.best.date) : '–'"></b></div>
+            <div><span class="k">Toughest day</span><b x-text="st.worst ? fmt(st.worst.total) + ' · Day ' + dayNumOf(st.worst.date) : '–'"></b></div>
+            <div><span class="k">Perfect-base days (70)</span><b x-text="perfectDays"></b></div>
+            <div><span class="k">Bonus points earned</span><b x-text="fmt(bonusSum)"></b></div>
+            <div><span class="k">Last 7 days avg</span><b x-text="last7Avg"></b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section x-show="tab === 'settings'" class="view" data-view="settings">
+      <div class="grid two">
+        <div class="card">
+          <h2>Parent mode</h2>
+          <p class="note">Editing saved scores, rules, goal and data needs the parent PIN. It locks itself after inactivity.</p>
+          <div class="field"><label>Auto-lock after (minutes)</label>
+            <input type="number" min="1" max="60" :value="settings.autoLockMin" @change="setSetting('autoLockMin', Math.max(1, +$event.target.value || 5))" :disabled="!parent"></div>
+          <label class="check"><input type="checkbox" :checked="settings.lockToday" @change="setSetting('lockToday', $event.target.checked)" :disabled="!parent">
+            <span>Even today's first score needs parent mode</span></label>
+          <div class="row">
+            <button class="btn" @click="requireParent(() => openPinSetup())" x-text="settings.pinHash ? 'Change PIN' : 'Set a PIN'"></button>
+            <button class="btn ghost" x-show="parent" @click="lockParent()">Lock now</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Challenge</h2>
+          <div class="field"><label>Goal (points)</label><input type="number" min="1" :value="settings.goal" @change="setSetting('goal', +$event.target.value || 5300)" :disabled="!parent"></div>
+          <div class="field"><label>Day 1 date</label><input type="date" :value="settings.startDate" @change="setSetting('startDate', $event.target.value)" :disabled="!parent"></div>
+          <div class="field"><label>Opening balance (Days 1–3)</label><input type="number" step="0.5" :value="settings.openingBalance" @change="setSetting('openingBalance', +$event.target.value || 0)" :disabled="!parent"></div>
+          <div class="field"><label>A "good day" is at least</label><input type="number" min="1" max="100" :value="settings.goodDay" @change="setSetting('goodDay', +$event.target.value || 60)" :disabled="!parent"></div>
+          <p class="note" x-show="!parent">Unlock parent mode to change these.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Rules</h2>
+        <ul class="rules edit">
+          <template x-for="(r, i) in settings.rules" :key="i + r">
+            <li><span x-text="r"></span><button class="x" x-show="parent" @click="removeRule(i)" aria-label="Remove rule">✕</button></li>
+          </template>
+        </ul>
+        <div class="row" x-show="parent">
+          <input type="text" x-model="newRule" placeholder="Add a rule" @keydown.enter="addRule()">
+          <button class="btn small" @click="addRule()">Add</button>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <h2>Backup &amp; import</h2>
+          <p class="note">Data lives on this device only. Export a backup now and then, and use it to move to another device.</p>
+          <div class="row wrap">
+            <button class="btn" @click="exportJson()">Export JSON</button>
+            <button class="btn" @click="exportCsv()">Export CSV</button>
+          </div>
+          <div class="row wrap">
+            <button class="btn ghost" @click="requireParent(() => $refs.importFile.click())">Import file…</button>
+            <input type="file" x-ref="importFile" accept=".txt,.json,text/plain,application/json" hidden @change="onImportFile($event)">
+          </div>
+          <p class="note">Accepts a JSON backup or the original text log format.</p>
+        </div>
+
+        <div class="card" x-show="corrections.length">
+          <h2>About your original file</h2>
+          <ul class="rules corr"><template x-for="c in corrections" :key="c"><li x-text="c"></li></template></ul>
+          <p class="note">Recalculated total today: <b x-text="fmt(st.total)"></b></p>
+        </div>
+      </div>
+
+      <div class="card danger">
+        <h2>Danger zone</h2>
+        <p class="note">Erases every entry and setting on this device.</p>
+        <button class="btn bad" @click="requireParent(() => resetAll())">Erase all data</button>
+      </div>
+      <div class="card">
+        <h2>Install on this device</h2>
+        <p class="note"><b>Android / Windows (Chrome, Edge):</b> use the Install button or the browser menu → Install app.<br>
+          <b>iPad / iPhone (Safari):</b> Share → Add to Home Screen.</p>
+        <div class="row"><button class="btn primary" x-show="canInstall" @click="install()">Install app</button></div>
+      </div>
+      <p class="foot">Works offline · v<span x-text="version"></span></p>
+    </section>
+  </main>
+
+  <!-- ===== Day editor sheet ===== -->
+  <div class="overlay" x-show="editor" x-cloak x-transition.opacity @click.self="closeEditor()">
+    <div class="sheet" x-show="editor" x-transition role="dialog" aria-modal="true">
+      <template x-if="editor">
+        <div>
+          <div class="sheet-head">
+            <div><h2 x-text="longDate(editor.date)"></h2><small x-text="'Day ' + dayNumOf(editor.date)"></small></div>
+            <button class="x" @click="closeEditor()" aria-label="Close">✕</button>
+          </div>
+          <p class="note warn" x-show="editor.readonly">View only. Unlock parent mode to change this day.</p>
+
+          <div class="sliders">
+            <template x-for="c in cats" :key="c.key">
+              <div class="slider">
+                <div class="srow">
+                  <span><span x-text="c.icon"></span> <span x-text="c.label"></span></span>
+                  <span class="val" :class="tone(editor.scores[c.key], c.max)" x-text="editor.scores[c.key] + ' / ' + c.max"></span>
+                </div>
+                <div class="ctrl">
+                  <button class="step" :disabled="editor.readonly" @click="bump(c, -0.5)" aria-label="Decrease">−</button>
+                  <input type="range" min="0" :max="c.max" step="0.5" x-model.number="editor.scores[c.key]" :disabled="editor.readonly" :aria-label="c.label">
+                  <button class="step" :disabled="editor.readonly" @click="bump(c, 0.5)" aria-label="Increase">+</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="bonus">
+            <div class="row between"><h3>Bonus points</h3><button class="btn small" x-show="!editor.readonly" @click="editor.bonus.push({points: 1, reason: ''})">+ Bonus</button></div>
+            <template x-for="(b, i) in editor.bonus" :key="i">
+              <div class="brow">
+                <input type="number" step="0.5" min="0" x-model.number="b.points" :disabled="editor.readonly" aria-label="Bonus points">
+                <input type="text" placeholder="Reason for bonus" x-model="b.reason" :disabled="editor.readonly">
+                <button class="x" x-show="!editor.readonly" @click="editor.bonus.splice(i, 1)" aria-label="Remove bonus">✕</button>
+              </div>
+            </template>
+          </div>
+
+          <div class="field"><label>Notes</label><textarea rows="2" x-model="editor.notes" :disabled="editor.readonly" placeholder="Optional note"></textarea></div>
+
+          <div class="sheet-foot">
+            <div class="live"><span class="k">Day total</span><b x-text="fmt(editorTotal)"></b><small x-text="' / 70' + (editorBonus ? ' + ' + fmt(editorBonus) + ' bonus' : '')"></small></div>
+            <div class="row">
+              <button class="btn bad ghost" x-show="parent && editor.exists" @click="deleteDay()">Delete</button>
+              <button class="btn primary" x-show="!editor.readonly" @click="saveEditor()">Save day</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ===== PIN dialog ===== -->
+  <div class="overlay" x-show="pin.open" x-cloak x-transition.opacity @click.self="closePin()">
+    <div class="dialog" x-show="pin.open" x-transition role="dialog" aria-modal="true">
+      <h2 x-text="pinTitle"></h2>
+      <p class="note" x-text="pinHint"></p>
+
+      <template x-if="pin.mode === 'recovered'">
+        <div>
+          <div class="recovery" x-text="pin.recovery"></div>
+          <p class="note">Write this recovery code down and keep it away from the child's reach. It is the only way to reset a forgotten PIN.</p>
+          <button class="btn primary" @click="closePin()">I've saved it</button>
+        </div>
+      </template>
+
+      <template x-if="pin.mode !== 'recovered'">
+        <form @submit.prevent="submitPin()">
+          <template x-if="pin.mode === 'forgot'">
+            <input type="text" x-model="pin.code" placeholder="Recovery code" autocomplete="off" autocapitalize="characters" class="pin-input code">
+          </template>
+          <template x-if="pin.mode !== 'forgot'">
+            <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" x-model="pin.value" placeholder="PIN" autocomplete="off" class="pin-input" x-ref="pinInput">
+          </template>
+          <template x-if="pin.mode === 'setup' || pin.mode === 'reset'">
+            <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" x-model="pin.confirm" placeholder="Repeat PIN" autocomplete="off" class="pin-input">
+          </template>
+          <p class="error" x-show="pin.error" x-text="pin.error"></p>
+          <div class="row">
+            <button type="button" class="btn ghost" @click="closePin()">Cancel</button>
+            <button type="submit" class="btn primary" x-text="pin.mode === 'enter' ? 'Unlock' : (pin.mode === 'forgot' ? 'Check code' : 'Save PIN')"></button>
+          </div>
+          <button type="button" class="link center" x-show="pin.mode === 'enter'" @click="pin.mode = 'forgot'; pin.error = ''">Forgot PIN?</button>
+        </form>
+      </template>
+    </div>
+  </div>
+
+  <!-- ===== Import preview ===== -->
+  <div class="overlay" x-show="importPreview" x-cloak x-transition.opacity>
+    <div class="dialog wide" x-show="importPreview" x-transition role="dialog" aria-modal="true">
+      <template x-if="importPreview">
+        <div>
+          <h2>Import preview</h2>
+          <p><b x-text="importPreview.days.length"></b> day(s) found<span x-show="importPreview.kind === 'json'"> in backup</span>. Matching dates will be overwritten; other days are kept.</p>
+          <ul class="rules corr" x-show="importPreview.warnings.length"><template x-for="w in importPreview.warnings" :key="w"><li x-text="w"></li></template></ul>
+          <p class="note">Totals are always recalculated from the scores.</p>
+          <div class="row">
+            <button class="btn ghost" @click="importPreview = null">Cancel</button>
+            <button class="btn primary" @click="applyImport()">Import</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <div class="toast" x-show="toast" x-cloak x-transition x-text="toast"></div>
+</body>
+</html>
